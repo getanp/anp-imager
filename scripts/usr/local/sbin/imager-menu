@@ -1,0 +1,122 @@
+#!/bin/sh
+set -eu
+NFSBASE="/mnt/img"
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing $1"; exit 1; }; }
+need qemu-img
+need whiptail
+
+# --- Find source disk ---
+pick_disk_fallback() {
+  lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}'
+}
+DISK="${DISK:-$(pick_disk_fallback | head -n1)}"
+[ -b "$DISK" ] || { whiptail --msgbox "No source disk found!" 8 60; exit 1; }
+
+# --- Get disk info for display ---
+DISK_SIZE=$(lsblk -dn -o SIZE "$DISK" 2>/dev/null || echo "unknown")
+DISK_MODEL=$(lsblk -dn -o MODEL "$DISK" 2>/dev/null || echo "")
+
+# --- Prompt for image name ---
+IMGNAME=$(whiptail --title "Capture Disk Image" \
+                   --inputbox "Enter a name for the image:\n\nSource: $DISK ($DISK_SIZE ${DISK_MODEL})" \
+                   12 70 \
+                   3>&1 1>&2 2>&3)
+[ -n "$IMGNAME" ] || { whiptail --msgbox "No name provided. Cancelled." 8 50; exit 1; }
+
+# Remove any extension and add .vdi
+IMGNAME=$(echo "$IMGNAME" | sed 's/\.[^.]*$//')
+IMGFILE="$NFSBASE/${IMGNAME}.vdi"
+
+# Check if file exists
+if [ -f "$IMGFILE" ]; then
+  whiptail --yesno "Image '$IMGNAME.vdi' already exists.\n\nOverwrite?" 10 60 || exit 1
+  rm -f "$IMGFILE"
+fi
+
+# --- Confirm capture ---
+whiptail --yesno "Ready to capture:\n\nSource: $DISK ($DISK_SIZE)\nDestination: $(basename "$IMGFILE")\n\nThis may take a while. Continue?" 12 70 || exit 1
+
+# --- Capture with progress bar ---
+MSG="Capturing $DISK to ${IMGNAME}.vdi"
+TMPLOG=/tmp/qemu-img-capture.log
+rm -f "$TMPLOG" /tmp/qemu-exitcode /tmp/qemu-pid
+
+# Start qemu-img in background
+(
+  script -q -c "qemu-img convert -p -O vdi '$DISK' '$IMGFILE'" /dev/null > "$TMPLOG" 2>&1
+  echo $? > /tmp/qemu-exitcode
+) &
+QEMU_PID=$!
+echo $QEMU_PID > /tmp/qemu-pid
+
+# Monitor progress
+{
+  while kill -0 $QEMU_PID 2>/dev/null; do
+    if [ -f "$TMPLOG" ]; then
+      # Extract percentage from the log (handle carriage returns)
+      pct=$(tr '\r' '\n' < "$TMPLOG" | grep -oE '\([0-9]+\.[0-9]+/100%' | tail -1 | grep -oE '[0-9]+' | head -1)
+      [ -n "$pct" ] && echo "$pct"
+    fi
+    sleep 0.5
+  done
+  echo 100
+} | whiptail --gauge "$MSG" 8 70 0
+
+wait $QEMU_PID
+
+# --- Check exit code and show error if needed ---
+EXITCODE=$(cat /tmp/qemu-exitcode 2>/dev/null || echo 1)
+if [ "$EXITCODE" -ne 0 ]; then
+  # Grab last few lines of the log
+  ERRMSG=$(tail -n 8 "$TMPLOG")
+  whiptail --title "Image Capture Error" \
+           --msgbox "Capture failed (exit code $EXITCODE)\n\n$ERRMSG" 15 70
+  exit 1
+fi
+
+# --- Save metadata ---
+METAFILE="$NFSBASE/${IMGNAME}.txt"
+{
+  echo "=== Disk Image Metadata ==="
+  echo "Image: ${IMGNAME}.vdi"
+  echo "Source: $DISK"
+  echo "Captured: $(date -u '+%Y-%m-%d %H:%M:%S UTC')"
+  echo "Host: $(hostname 2>/dev/null || echo 'imager')"
+  echo ""
+  echo "=== System Information ==="
+  if command -v dmidecode >/dev/null 2>&1; then
+    SYS_MANUFACTURER=$(dmidecode -s system-manufacturer 2>/dev/null | head -1)
+    SYS_PRODUCT=$(dmidecode -s system-product-name 2>/dev/null | head -1)
+    SYS_VERSION=$(dmidecode -s system-version 2>/dev/null | head -1)
+    SYS_SERIAL=$(dmidecode -s system-serial-number 2>/dev/null | head -1)
+    SYS_UUID=$(dmidecode -s system-uuid 2>/dev/null | head -1)
+    ASSET_TAG=$(dmidecode -s chassis-asset-tag 2>/dev/null | head -1)
+    
+    [ -n "$SYS_MANUFACTURER" ] && echo "Manufacturer: $SYS_MANUFACTURER"
+    [ -n "$SYS_PRODUCT" ] && echo "Model: $SYS_PRODUCT"
+    [ -n "$SYS_VERSION" ] && echo "Version: $SYS_VERSION"
+    [ -n "$SYS_SERIAL" ] && echo "Serial Number: $SYS_SERIAL"
+    [ -n "$SYS_UUID" ] && echo "UUID: $SYS_UUID"
+    [ -n "$ASSET_TAG" ] && [ "$ASSET_TAG" != "Not Specified" ] && echo "Asset Tag: $ASSET_TAG"
+  else
+    echo "dmidecode not available"
+  fi
+  echo ""
+  echo "=== Disk Information ==="
+  lsblk -o NAME,SIZE,TYPE,FSTYPE,LABEL,MOUNTPOINT "$DISK" 2>/dev/null || true
+  echo ""
+  echo "=== Partition Table ==="
+  sfdisk -d "$DISK" 2>/dev/null || fdisk -l "$DISK" 2>/dev/null || true
+  echo ""
+  echo "=== Block IDs ==="
+  blkid | grep "^$DISK" || true
+} > "$METAFILE"
+
+# --- Success ---
+IMG_SIZE=$(ls -lh "$IMGFILE" 2>/dev/null | awk '{print $5}')
+whiptail --title "Capture Complete" \
+         --msgbox "Capture complete!\n\nImage: ${IMGNAME}.vdi\nSize: ${IMG_SIZE:-unknown}\nSource: $DISK\n\nMetadata saved to ${IMGNAME}.txt\nThe system is powering down" 14 70
+
+# --- Graceful poweroff ---
+sleep 2
+poweroff -f 2>/dev/null || halt -p 2>/dev/null || echo o > /proc/sysrq-trigger

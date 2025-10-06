@@ -1,0 +1,75 @@
+#!/bin/sh
+set -eu
+NFSBASE="/mnt/img"
+need() { command -v "$1" >/dev/null 2>&1 || { echo "Missing $1"; exit 1; }; }
+need qemu-img
+need whiptail
+# --- Find target disk ---
+pick_disk_fallback() {
+  lsblk -dn -o NAME,TYPE | awk '$2=="disk"{print "/dev/"$1}'
+}
+DISK="${DISK:-$(pick_disk_fallback | head -n1)}"
+[ -b "$DISK" ] || { whiptail --msgbox "No target disk found!" 8 60; exit 1; }
+# --- Gather available images ---
+IMGLIST=$(find "$NFSBASE" -maxdepth 1 -type f -iname "*.vdi" | sort)
+[ -n "$IMGLIST" ] || { whiptail --msgbox "No image files found in $NFSBASE" 8 60; exit 1; }
+# Build whiptail menu
+MENU_ITEMS=""
+i=1
+for img in $IMGLIST; do
+  base=$(basename "$img")
+  MENU_ITEMS="$MENU_ITEMS $i \"$base\""
+  i=$((i+1))
+done
+# Choose image
+CHOICE=$(whiptail --title "Select Disk Image" --menu "Choose an image to restore onto $DISK:" 20 70 10 $MENU_ITEMS 3>&1 1>&2 2>&3)
+[ -n "$CHOICE" ] || exit 1
+IMGNAME=$(echo "$IMGLIST" | sed -n "${CHOICE}p")
+[ -f "$IMGNAME" ] || { whiptail --msgbox "Image not found: $IMGNAME" 8 60; exit 1; }
+# Confirm
+whiptail --yesno "You are about to overwrite:\n\n  $DISK\n\nwith image:\n\n  $(basename "$IMGNAME")\n\nAre you sure?" 15 70 || exit 1
+# --- Restore with progress bar ---
+MSG="Restoring $(basename "$IMGNAME") to $DISK"
+TMPLOG=/tmp/qemu-img.log
+rm -f "$TMPLOG" /tmp/qemu-exitcode /tmp/qemu-pid
+
+# Start qemu-img in background (suppress output to terminal)
+(
+  script -q -c "qemu-img convert -p -O raw '$IMGNAME' '$DISK'" /dev/null > "$TMPLOG" 2>&1
+  echo $? > /tmp/qemu-exitcode
+) &
+QEMU_PID=$!
+echo $QEMU_PID > /tmp/qemu-pid
+
+# Monitor progress
+{
+  while kill -0 $QEMU_PID 2>/dev/null; do
+    if [ -f "$TMPLOG" ]; then
+      # Extract percentage from the log (handle carriage returns)
+      pct=$(tr '\r' '\n' < "$TMPLOG" | grep -oE '\([0-9]+\.[0-9]+/100%' | tail -1 | grep -oE '[0-9]+' | head -1)
+      [ -n "$pct" ] && echo "$pct"
+    fi
+    sleep 0.5
+  done
+  echo 100
+} | whiptail --gauge "$MSG" 8 70 0
+
+wait $QEMU_PID
+
+# --- Check exit code and show error if needed ---
+EXITCODE=$(cat /tmp/qemu-exitcode 2>/dev/null || echo 1)
+if [ "$EXITCODE" -ne 0 ]; then
+  # Grab last few lines of the log
+  ERRMSG=$(tail -n 8 "$TMPLOG")
+  whiptail --title "Image Restore Error" \
+           --msgbox "Restore failed (exit code $EXITCODE)\n\n$ERRMSG" 15 70
+  exit 1
+fi
+
+sync
+whiptail --title "Restore complete" \
+         --msgbox "Restore complete!\n\nImage: $(basename "$IMGNAME")\nTarget: $DISK\n\nSystem will power off shortly." 12 60
+
+# --- Graceful poweroff ---
+sleep 2
+poweroff -f 2>/dev/null || halt -p 2>/dev/null || echo o > /proc/sysrq-trigger
