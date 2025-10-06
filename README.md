@@ -66,14 +66,14 @@ Installation
 
 From the project repository root:
 
-'''bash
+```bash
 # Copy the imaging scripts into the system root
 sudo cp -r scripts/* /
 
 # Copy PXE boot files into the TFTP directory
 sudo mkdir -p /srv/tftp
 sudo cp -r boot_files/* /srv/tftp/
-'''
+```
 
 This installs all initramfs-hooks, system binaries (/usr/local/sbin/imager-init, imager-restore, etc.),
 and PXE assets (vmlinuz, initrd.img, PXE menus).
@@ -81,16 +81,16 @@ and PXE assets (vmlinuz, initrd.img, PXE menus).
 2. Build the PXE initrd
 
 Rebuild the initramfs so the custom /init and imaging tools are embedded:
-'''bash
+```bash
 sudo mkinitramfs -o /srv/tftp/initrd.img "$(uname -r)"
-'''
+```
 
 3. Create a USB Boot Device
 
 A helper script is provided:
-'''bash
+```bash
 usb/linux/create.sh
-'''
+```
 
 ---
 ### © 2025 Advanced Network Professionals
