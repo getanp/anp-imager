@@ -5,7 +5,7 @@ Boot it over **PXE** or from a **USB stick**, and it provides a menu-driven inte
 
 ---
 
-## 🚀 Features
+## Features
 
 - **PXE or USB boot** — no OS or disk required
   
@@ -24,7 +24,7 @@ Boot it over **PXE** or from a **USB stick**, and it provides a menu-driven inte
 
 ---
 
-## 🧱 System Architecture
+## System Architecture
 
 | Stage | Component | Purpose |
 | --- | --- | --- |
@@ -46,7 +46,7 @@ Boot it over **PXE** or from a **USB stick**, and it provides a menu-driven inte
 
 ---
 
-## ✅ Result
+## Result
 
 - Boots from **PXE or USB**
   
