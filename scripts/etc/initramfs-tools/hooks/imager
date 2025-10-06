@@ -1,0 +1,105 @@
+#!/bin/sh
+set -e
+
+PREREQ=""
+prereqs() { echo "$PREREQ"; }
+case "$1" in
+  prereqs) prereqs; exit 0 ;;
+esac
+
+# Bring in helper functions like copy_exec
+. /usr/share/initramfs-tools/hook-functions
+
+# Resolve binaries dynamically (paths can vary)
+need_execs="$(command -v busybox) \
+             $(command -v curl) \
+             $(command -v sgdisk) \
+             $(command -v lsblk) \
+             $(command -v blkid) \
+             $(command -v whiptail) \
+             $(command -v wpa_supplicant) \
+             $(command -v wpa_cli) \
+             $(command -v iw) \
+             $(command -v ifconfig) \
+             $(command -v dmidecode) \
+             $(command -v wpa_passphrase) \
+             $(command -v dd) \
+             $(command -v pv) \
+             $(command -v qemu-img) \
+             $(command -v shutdown) \
+             $(command -v mknod) \
+             $(command -v script) \
+             $(command -v ssh)"
+
+# Include partclone tools (there are multiple: partclone.ext4, partclone.ntfs, etc.)
+for pc in /usr/sbin/partclone.*; do
+  [ -x "$pc" ] && need_execs="$need_execs $pc"
+done
+
+for bin in $need_execs; do
+  [ -n "$bin" ] && copy_exec "$bin"
+done
+
+# include our PID1
+if [ -x /usr/local/sbin/imager-init ]; then
+  mkdir -p "$DESTDIR/usr/local/sbin"
+  cp /usr/local/sbin/imager-init "$DESTDIR/usr/local/sbin/imager-init"
+fi
+
+if [ -x /usr/local/sbin/imager-menu ]; then
+  mkdir -p "$DESTDIR/usr/local/sbin"
+  cp /usr/local/sbin/imager-menu "$DESTDIR/usr/local/sbin/imager-menu"
+fi
+
+if [ -x /usr/local/sbin/imager-restore ]; then
+  mkdir -p "$DESTDIR/usr/local/sbin"
+  cp /usr/local/sbin/imager-restore "$DESTDIR/usr/local/sbin/imager-restore"
+fi
+
+if [ -d /lib/firmware/rtw88 ] || [ -d /usr/lib/firmware/rtw88 ]; then
+  mkdir -p "$DESTDIR/lib/firmware/rtw88"
+  # copy contents (the trailing /. is important)
+  [ -d /lib/firmware/rtw88 ]  && cp -a /lib/firmware/rtw88/.  "$DESTDIR/lib/firmware/rtw88/" || true
+  [ -d /usr/lib/firmware/rtw88 ] && cp -a /usr/lib/firmware/rtw88/. "$DESTDIR/lib/firmware/rtw88/" || true
+fi
+
+if [ -f /etc/wpa_supplicant.conf ]; then
+  mkdir -p "$DESTDIR/etc"
+  cp /etc/wpa_supplicant.conf "$DESTDIR/etc/"
+fi
+
+
+if [ -x /usr/local/sbin/imager-init ]; then
+  mkdir -p "$DESTDIR/usr/local/sbin"
+  cp /usr/local/sbin/imager-init "$DESTDIR/usr/local/sbin/imager-init"
+fi
+
+# include udhcpc helper script
+if [ -x /usr/local/lib/udhcpc-imager.sh ]; then
+  mkdir -p "$DESTDIR/usr/local/lib"
+  cp /usr/local/lib/udhcpc-imager.sh "$DESTDIR/usr/local/lib/udhcpc-imager.sh"
+fi
+
+# ---- NFS client helpers ----
+for bin in /sbin/mount.nfs /sbin/mount.nfs4 /usr/sbin/rpc.statd /usr/sbin/rpc.idmapd; do
+  [ -x "$bin" ] && copy_exec "$bin"
+done
+
+# idmap conf helps NFSv4 name mapping (safe default)
+if [ -f /etc/idmapd.conf ]; then
+  mkdir -p "$DESTDIR/etc"
+  cp /etc/idmapd.conf "$DESTDIR/etc/idmapd.conf"
+fi
+
+if [ -f /etc/inittab.imager ]; then
+  mkdir -p "$DESTDIR/etc"
+  cp /etc/inittab.imager "$DESTDIR/etc/inittab"
+  echo "[imager-hook] included /etc/inittab.imager into initramfs" >&2
+fi
+
+mkdir -p "$DESTDIR/var/run"
+mkdir -p "$DESTDIR/var/log"
+
+
+
+exit 0

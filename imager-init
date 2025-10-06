@@ -1,0 +1,125 @@
+#!/bin/sh
+set -eu
+echo "[imager-init] PID $$ starting"
+# --- networking (same as before) ---
+sleep 5
+for IF in $(ls /sys/class/net | grep -Ev '^lo$'); do
+  /bin/busybox ip link set "$IF" up || true
+  if /bin/busybox udhcpc -i "$IF" -t 6 -n -T 3 -q -s /usr/local/lib/udhcpc-imager.sh; then
+    break
+  fi
+done
+clear
+# --- helper: list candidate system disks (no usb/loop/sr/ram/zram) ---
+list_disks() {
+  # NAME TYPE RM RO TRAN HOTPLUG SIZE MODEL
+  lsblk -dn -o NAME,TYPE,RM,RO,TRAN,HOTPLUG,SIZE,MODEL 2>/dev/null | \
+  while read NAME TYPE RM RO TRAN HOTPLUG SIZE REST; do
+    [ "$TYPE" = "disk" ] || continue
+    [ "${RM:-0}" = "0" ] || continue        # not removable
+    [ "${RO:-0}" = "0" ] || continue        # not read-only
+    [ "${HOTPLUG:-0}" = "0" ] || continue   # not hotplug
+    case "$TRAN" in usb) continue ;; esac   # not USB
+    case "$NAME" in loop*|sr*|zram*|ram*|fd*) continue ;; esac
+    echo "$NAME|$SIZE|$REST"
+  done
+}
+pick_disk() {
+  CANDS="$(list_disks)"
+  if [ -z "$CANDS" ]; then
+    echo "No suitable system disks found." >&2
+    echo "All block devices:" >&2
+    lsblk
+    printf "/bin/sh for manual work..."; exec /bin/sh
+  fi
+  if command -v whiptail >/dev/null 2>&1; then
+    # Build positional parameters as tag/desc pairs for whiptail (no arrays in ash)
+    set --  # clear "$@"
+    echo "$CANDS" | while IFS='|' read NAME SIZE REST; do
+      [ -n "$NAME" ] || continue
+      DESC="/dev/$NAME  ${SIZE:-?} ${REST:-}"
+      printf '%s\0%s\0' "/dev/$NAME" "$DESC"
+    done | {
+      # read NUL-separated pairs and append to "$@"
+      while IFS= read -r -d '' TAG && IFS= read -r -d '' DESC; do
+        set -- "$@" "$TAG" "$DESC"
+      done
+      # If we somehow have no pairs, fall back
+      if [ "$#" -eq 0 ]; then
+        echo "No items for whiptail; falling back." >&2
+        fallback_pick
+        return
+      fi
+      CHOICE=$(whiptail --title "Select target disk" \
+                        --menu "Choose the target disk to image/restore" \
+                        20 78 10 "$@" 3>&1 1>&2 2>&3) || CHOICE=""
+      if [ -z "$CHOICE" ]; then
+        echo "No disk selected; dropping to shell."
+        exec /bin/sh
+      fi
+      echo "$CHOICE"
+    }
+  else
+    fallback_pick
+  fi
+}
+fallback_pick() {
+  echo "[Disks]"
+  nl -w1 -s': ' <<EOF
+$(echo "$CANDS" | sed 's/|/ /g')
+EOF
+  printf "Enter number: "
+  read sel
+  [ -n "$sel" ] || { echo "No selection."; exec /bin/sh; }
+  PICK_LINE="$(echo "$CANDS" | sed -n "${sel}p")"
+  DISK_NAME="$(echo "$PICK_LINE" | cut -d'|' -f1)"
+  [ -n "$DISK_NAME" ] || { echo "Invalid selection."; exec /bin/sh; }
+  echo "/dev/$DISK_NAME"
+}
+TARGET_DISK="$(pick_disk)"
+echo "[imager-init] selected disk: $TARGET_DISK"
+# Optional: parse kernel args for NFS mount (kept from earlier)
+CMDLINE="$(cat /proc/cmdline)"
+getarg(){ echo " $CMDLINE " | sed -n "s/.* $1=\([^ ]*\) .*/\1/p"; }
+IMG_NFS="$(getarg img_nfs || true)"
+NFSVER="$(getarg nfsver || true)"
+if [ -n "$IMG_NFS" ]; then
+  mkdir -p /mnt/img
+  VER="${NFSVER:-4.2}"
+  echo "[imager-init] mounting NFS $IMG_NFS (vers=$VER)"
+  mount -t nfs -o vers="$VER",proto=tcp,async,rsize=1048576,wsize=1048576,noatime,nolock "$IMG_NFS" /mnt/img \
+    || mount -t nfs -o vers=3,nolock,proto=tcp,async,rsize=1048576,wsize=1048576,noatime "$IMG_NFS" /mnt/img || echo "[WARN] NFS mount failed"
+fi
+# --- main menu ---
+while true; do
+  if command -v whiptail >/dev/null 2>&1; then
+    CHOICE=$(whiptail --title "Disk Imager" \
+                      --menu "Target: $TARGET_DISK\n\nSelect action:" \
+                      15 70 3 \
+                      "1" "Capture disk image from $TARGET_DISK" \
+                      "2" "Restore disk image to $TARGET_DISK" \
+                      "3" "Exit to shell" \
+                      3>&1 1>&2 2>&3) || CHOICE=""
+
+    case "$CHOICE" in
+      1) DISK="$TARGET_DISK" /usr/local/sbin/imager-menu ;;
+      2) DISK="$TARGET_DISK" /usr/local/sbin/imager-restore ;;
+      3) exec /bin/sh ;;
+      "") continue ;;  # User pressed Cancel
+    esac
+  else
+    # Fallback text menu
+    echo
+    echo "Select action:"
+    echo "1) Capture disk image from $TARGET_DISK"
+    echo "2) Restore disk image to $TARGET_DISK"
+    echo "3) Shell"
+    printf "> "
+    read CHOICE
+    case "$CHOICE" in
+      1) DISK="$TARGET_DISK" /usr/local/sbin/imager-menu ;;
+      2) DISK="$TARGET_DISK" /usr/local/sbin/imager-restore ;;
+      3) exec /bin/sh ;;
+    esac
+  fi
+done

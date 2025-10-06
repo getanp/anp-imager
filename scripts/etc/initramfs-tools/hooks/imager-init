@@ -1,0 +1,6 @@
+#!/bin/sh
+set -e
+. /usr/share/initramfs-tools/hook-functions
+
+cp /etc/initramfs-tools/custom/init "$DESTDIR/init"
+chmod 755 "$DESTDIR/init"
