@@ -78,19 +78,25 @@ sudo cp -r boot_files/* /srv/tftp/
 This installs all initramfs-hooks, system binaries (/usr/local/sbin/imager-init, imager-restore, etc.),
 and PXE assets (vmlinuz, initrd.img, PXE menus).
 
-2. Build the PXE initrd
+2. Run the Install Script
+```bash
+sh scripts/install.sh
+```
+
+3. Build the PXE initrd
 
 Rebuild the initramfs so the custom /init and imaging tools are embedded:
 ```bash
 sudo mkinitramfs -o /srv/tftp/initrd.img "$(uname -r)"
 ```
 
-3. Create a USB Boot Device
+4. Create a USB Boot Device
 
 A helper script is provided:
 ```bash
 usb/linux/create.sh
 ```
+
 
 ---
 ### © 2025 Advanced Network Professionals
