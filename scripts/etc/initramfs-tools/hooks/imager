@@ -43,17 +43,17 @@ done
 # include our PID1
 if [ -x /usr/local/sbin/imager-init ]; then
   mkdir -p "$DESTDIR/usr/local/sbin"
-  cp /usr/local/sbin/imager-init "$DESTDIR/usr/local/sbin/imager-init"
+  cp -v /usr/local/sbin/imager-init "$DESTDIR/usr/local/sbin/imager-init"
 fi
 
 if [ -x /usr/local/sbin/imager-menu ]; then
   mkdir -p "$DESTDIR/usr/local/sbin"
-  cp /usr/local/sbin/imager-menu "$DESTDIR/usr/local/sbin/imager-menu"
+  cp -v /usr/local/sbin/imager-menu "$DESTDIR/usr/local/sbin/imager-menu"
 fi
 
 if [ -x /usr/local/sbin/imager-restore ]; then
   mkdir -p "$DESTDIR/usr/local/sbin"
-  cp /usr/local/sbin/imager-restore "$DESTDIR/usr/local/sbin/imager-restore"
+  cp -v /usr/local/sbin/imager-restore "$DESTDIR/usr/local/sbin/imager-restore"
 fi
 
 if [ -d /lib/firmware/rtw88 ] || [ -d /usr/lib/firmware/rtw88 ]; then
@@ -65,19 +65,19 @@ fi
 
 if [ -f /etc/wpa_supplicant.conf ]; then
   mkdir -p "$DESTDIR/etc"
-  cp /etc/wpa_supplicant.conf "$DESTDIR/etc/"
+  cp -v /etc/wpa_supplicant.conf "$DESTDIR/etc/"
 fi
 
 
 if [ -x /usr/local/sbin/imager-init ]; then
   mkdir -p "$DESTDIR/usr/local/sbin"
-  cp /usr/local/sbin/imager-init "$DESTDIR/usr/local/sbin/imager-init"
+  cp -v /usr/local/sbin/imager-init "$DESTDIR/usr/local/sbin/imager-init"
 fi
 
 # include udhcpc helper script
 if [ -x /usr/local/lib/udhcpc-imager.sh ]; then
   mkdir -p "$DESTDIR/usr/local/lib"
-  cp /usr/local/lib/udhcpc-imager.sh "$DESTDIR/usr/local/lib/udhcpc-imager.sh"
+  cp -v /usr/local/lib/udhcpc-imager.sh "$DESTDIR/usr/local/lib/udhcpc-imager.sh"
 fi
 
 # ---- NFS client helpers ----
@@ -88,13 +88,12 @@ done
 # idmap conf helps NFSv4 name mapping (safe default)
 if [ -f /etc/idmapd.conf ]; then
   mkdir -p "$DESTDIR/etc"
-  cp /etc/idmapd.conf "$DESTDIR/etc/idmapd.conf"
+  cp -v /etc/idmapd.conf "$DESTDIR/etc/idmapd.conf"
 fi
 
 if [ -f /etc/inittab.imager ]; then
   mkdir -p "$DESTDIR/etc"
-  cp /etc/inittab.imager "$DESTDIR/etc/inittab"
-  echo "[imager-hook] included /etc/inittab.imager into initramfs" >&2
+  cp -v /etc/inittab.imager "$DESTDIR/etc/inittab"
 fi
 
 mkdir -p "$DESTDIR/var/run"

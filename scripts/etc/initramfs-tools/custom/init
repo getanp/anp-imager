@@ -1,0 +1,49 @@
+#!/bin/sh
+export PATH=/sbin:/usr/sbin:/bin:/usr/bin
+
+echo "[imager-init] starting ANP PXE environment..."
+
+# --- Normal Debian initramfs setup ---
+[ -d /dev ]  || mkdir -m 0755 /dev
+[ -d /root ] || mkdir -m 0700 /root
+[ -d /sys ]  || mkdir /sys
+[ -d /proc ] || mkdir /proc
+[ -d /tmp ]  || mkdir /tmp
+mkdir -p /var/lock
+mount -t sysfs -o nodev,noexec,nosuid sysfs /sys
+mount -t proc  -o nodev,noexec,nosuid proc  /proc
+mount -t devtmpfs -o nosuid,mode=0755 udev /dev
+mkdir /dev/pts
+mount -t devpts -o noexec,nosuid,gid=5,mode=0600 devpts /dev/pts || true
+mkdir -p /run /var/log
+mount -t tmpfs -o "nodev,noexec,nosuid,size=20%,mode=0755" tmpfs /run
+
+# --- Run udev init-top to start udevd ---
+if [ -x /scripts/init-top/udev ]; then
+    /scripts/init-top/udev
+fi
+
+# Trigger udev and wait for devices to appear
+udevadm trigger
+udevadm settle
+
+# --- Classic diagnostic devices ---
+for dev in mem kmem port; do
+    case $dev in
+        mem)  minor=1 ;;
+        kmem) minor=2 ;;
+        port) minor=4 ;;
+    esac
+    [ -e /dev/$dev ] || mknod /dev/$dev c 1 $minor
+    chmod 0600 /dev/$dev
+done
+
+# --- Ensure ttys exist ---
+for i in 1 2 3 4 5; do
+    [ -e /dev/tty$i ] || mknod /dev/tty$i c 4 $i
+done
+
+# --- Hostname ---
+echo "anp-imager.anp.support" > /proc/sys/kernel/hostname
+
+exec /sbin/init

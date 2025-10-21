@@ -58,10 +58,18 @@ Boot it over **PXE** or from a **USB stick**, and it provides a menu-driven inte
   
 - Shuts down cleanly when done
   
+---
+Quick Install Debian 13
+
+```bash
+sh scripts/install.sh
+```
+
+Continue with step 4
 
 ---
 
-Installation
+Installation (Manual)
 1. Copy required directories
 
 From the project repository root:
@@ -78,19 +86,48 @@ sudo cp -r boot_files/* /srv/tftp/
 This installs all initramfs-hooks, system binaries (/usr/local/sbin/imager-init, imager-restore, etc.),
 and PXE assets (vmlinuz, initrd.img, PXE menus).
 
-2. Run the Install Script
-```bash
-sh scripts/install.sh
-```
 
 3. Build the PXE initrd
 
-Rebuild the initramfs so the custom /init and imaging tools are embedded:
+Rebuild the initramfs (and copy your kernel) so the custom /init and imaging tools are embedded:
 ```bash
 sudo mkinitramfs -o /srv/tftp/initrd.img "$(uname -r)"
+sudo cp /boot/vmlinuz-$(uname -r) /srv/tftp/vmlinuz
 ```
 
-4. Create a USB Boot Device
+4. Install VirtualBox (If you want to manage the VMs)
+```bash
+wget https://download.virtualbox.org/virtualbox/7.2.4/virtualbox-7.2_7.2.4-170995~Debian~trixie_amd64.deb
+apt install build-essential linux-headers-`uname -r` linux-headers-amd64
+dpkg -i virtualbox-7.2_7.2.4-170995~Debian~trixie_amd64.deb
+usermod -a -G vboxusers <yourusername>
+
+```
+
+
+5. Setup NFS for the images
+```bash
+mkdir /srv/images
+groupadd imager
+usermod -a -G imager <yourusername>
+chgrp -R imager /srv/images
+chmod -R 777 /srv/images
+echo /srv/images *(rw,sync,no_subtree_check,fsid=0,crossmnt) >> /etc/exports
+exportfs -ra
+```
+
+6. Setup the PXE enviroment
+```bash
+nano /srv/tftp/grub/grub.cfg
+```
+Find the line:
+img_nfs=x.x.x.x
+replace it with the ip of your image computer (same computer that has the nfs on it)
+```bash
+img_nfs=192.168.1.50:/srv/images
+```
+
+7. Create a USB Boot Device (optional if you don't want to use PXE)
 
 A helper script is provided:
 ```bash
@@ -102,3 +139,4 @@ usb/linux/create.sh
 ### © 2025 Advanced Network Professionals
 
 Built for fast, consistent deployment and recovery across workstations and servers.
+
